@@ -1,0 +1,42 @@
+name: Frontend CI — Build & Push (SHA tags)
+
+on:
+  push:
+    branches: ["testing"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend_ci.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+
+jobs:
+  build_and_push_frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: ACR login
+        run: az acr login --name $ACR_NAME
+
+      - name: Build & push frontend (SHA tag)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}
