@@ -1,0 +1,73 @@
+name: CD — Production (ACI upsert)
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/cd-prod.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  PROD_RG: rg-sit722-prod
+  LOCATION: australiaeast
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+  ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+
+jobs:
+  prod:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+
+      - name: Ensure prod RG
+        run: az group create -n $PROD_RG -l $LOCATION
+
+      - name: product → prod
+        run: |
+          az container delete -g $PROD_RG -n product-prod --yes || true
+          az container create -g $PROD_RG -n product-prod \
+            --image ${{ env.ACR_LOGIN_SERVER }}/product_service:${{ github.sha }} \
+            --dns-name-label product-prod-${{ github.run_id }} \
+            --ports 8000 --cpu 1 --memory 1.5 --restart-policy Always \
+            --registry-login-server ${{ env.ACR_LOGIN_SERVER }} \
+            --registry-username ${{ env.ACR_USERNAME }} \
+            --registry-password ${{ env.ACR_PASSWORD }}
+
+      - name: order → prod
+        run: |
+          az container delete -g $PROD_RG -n order-prod --yes || true
+          az container create -g $PROD_RG -n order-prod \
+            --image ${{ env.ACR_LOGIN_SERVER }}/order_service:${{ github.sha }} \
+            --dns-name-label order-prod-${{ github.run_id }} \
+            --ports 8000 --cpu 1 --memory 1.5 --restart-policy Always \
+            --registry-login-server ${{ env.ACR_LOGIN_SERVER }} \
+            --registry-username ${{ env.ACR_USERNAME }} \
+            --registry-password ${{ env.ACR_PASSWORD }}
+
+      - name: frontend → prod
+        run: |
+          az container delete -g $PROD_RG -n frontend-prod --yes || true
+          az container create -g $PROD_RG -n frontend-prod \
+            --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+            --dns-name-label fe-prod-${{ github.run_id }} \
+            --ports 80 --cpu 1 --memory 1 --restart-policy Always \
+            --registry-login-server ${{ env.ACR_LOGIN_SERVER }} \
+            --registry-username ${{ env.ACR_USERNAME }} \
+            --registry-password ${{ env.ACR_PASSWORD }}
+
+      - name: Show prod
+        run: az container list -g $PROD_RG -o table
